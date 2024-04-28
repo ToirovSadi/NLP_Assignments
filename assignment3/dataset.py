@@ -5,6 +5,36 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 class NERDataset(Dataset):
+    """
+    A PyTorch dataset class for Named Entity Recognition (NER) task.
+
+    Args:
+        tokenizer (str or transformers.PreTrainedTokenizer, optional): The tokenizer to use for tokenizing the text. 
+            If a string is provided, it will be used to load the tokenizer from the Hugging Face model hub. 
+            Defaults to "DeepPavlov/rubert-base-cased".
+        mode (str, optional): The mode of the dataset. Can be "train", "dev", or "test". Defaults to "train".
+        max_length (int, optional): The maximum length of the input sequence. Defaults to 128.
+        return_all (bool, optional): Whether to return all information in the dataset or only a subset. 
+            Defaults to False.
+
+    Attributes:
+        dataset_link (str): The link to the dataset.
+        dataset (datasets.Dataset): The loaded dataset.
+        tokenizer (transformers.PreTrainedTokenizer): The tokenizer used for tokenization.
+        tags2id (dict): A dictionary mapping tag names to their corresponding IDs.
+        id2tags (dict): A dictionary mapping tag IDs to their corresponding names.
+
+    Methods:
+        __len__(): Returns the length of the dataset.
+        __getitem__(index): Returns a specific item from the dataset.
+        _truncate_output(sample): Truncates the input and output sequences to the maximum length.
+        _convert_to_iobes(tags): Converts the tags from IOB format to IOBES format.
+        convert_ids_to_tags(ids): Converts tag IDs to their corresponding tag names.
+        _overlap(a, b): Checks if two character offsets overlap.
+        parse_annotations(annotations, sort=True): Parses the annotation data and removes overlapping entities.
+        convert_to_token_level(tokens, offsets, special_tokens, annotation): Converts character offsets to token-level annotations.
+    """
+
     def __init__(self, tokenizer="DeepPavlov/rubert-base-cased", mode='train', max_length=128, return_all=False):
         self.mode = mode
         self.max_length = max_length
@@ -36,9 +66,24 @@ class NERDataset(Dataset):
         self.id2tags = {v: k for k, v in self.tags2id.items()}
 
     def __len__(self):
+        """
+        Returns the length of the dataset.
+
+        Returns:
+            int: The length of the dataset.
+        """
         return len(self.dataset)
 
     def __getitem__(self, index):
+        """
+        Returns a specific item from the dataset.
+
+        Args:
+            index (int): The index of the item to retrieve.
+
+        Returns:
+            tuple: A tuple containing the input and output sequences.
+        """
         # get the text
         text = self.dataset['text'][index]
         t = self.tokenizer(text, return_offsets_mapping=True, return_special_tokens_mask=True)
@@ -61,7 +106,7 @@ class NERDataset(Dataset):
         parsed_annotations, _ = self.parse_annotations(annotations, sort=True)
         token_level_tags = self.convert_to_token_level(tokens, offsets, special_tokens_mask, parsed_annotations)
 
-        # convert token_level tags to it's corresponding id
+        # convert token_level tags to its corresponding id
         tags_ids = [self.tags2id[t] for t in token_level_tags]
 
         return self._truncate_output((
@@ -75,6 +120,15 @@ class NERDataset(Dataset):
         ))
     
     def _truncate_output(self, sample):
+        """
+        Truncates the input and output sequences to the maximum length.
+
+        Args:
+            sample (tuple): A tuple containing the input and output sequences.
+
+        Returns:
+            tuple: A tuple containing the truncated input and output sequences.
+        """
         input_ids, token_type_ids = sample[:2]
         input_ids = input_ids[:self.max_length] # input_ids
         token_type_ids = token_type_ids[:self.max_length] # token_type_ids
@@ -104,6 +158,15 @@ class NERDataset(Dataset):
         return res
 
     def _convert_to_iobes(self, tags):
+        """
+        Converts the tags from IOB format to IOBES format.
+
+        Args:
+            tags (list): A list of tags in IOB format.
+
+        Returns:
+            list: A list of tags in IOBES format.
+        """
         iobes_tags = []
         length = len(tags)
 
@@ -125,16 +188,44 @@ class NERDataset(Dataset):
         return iobes_tags
     
     def convert_ids_to_tags(self, ids):
+        """
+        Converts tag IDs to their corresponding tag names.
+
+        Args:
+            ids (list): A list of tag IDs.
+
+        Returns:
+            list: A list of tag names.
+        """
         return [self.id2tags.get(i, 'O') for i in ids]
 
     def _overlap(self, a, b):
+        """
+        Checks if two character offsets overlap.
+
+        Args:
+            a (tuple): The first character offset.
+            b (tuple): The second character offset.
+
+        Returns:
+            bool: True if the character offsets overlap, False otherwise.
+        """
         if a[0] <= b[0] <= a[1] or b[0] <= a[0] <= b[1]:
             return True
         return False
     
 
-    # Function to parse the annotation data
     def parse_annotations(self, annotations, sort=True):
+        """
+        Parses the annotation data and removes overlapping entities.
+
+        Args:
+            annotations (list): A list of annotations in the format "start end entity_type".
+            sort (bool, optional): Whether to sort the annotations by their start position. Defaults to True.
+
+        Returns:
+            tuple: A tuple containing the filtered annotations and the original annotations.
+        """
         parsed_annotations = []
         for annotation in annotations:
             start, end, entity_type = annotation.split()
@@ -153,8 +244,19 @@ class NERDataset(Dataset):
 
         return filtered_annotations, parsed_annotations
 
-    # Function to convert character offsets to token-level annotations
     def convert_to_token_level(self, tokens, offsets, special_tokens, annotation):
+        """
+        Converts character offsets to token-level annotations.
+
+        Args:
+            tokens (list): A list of tokens.
+            offsets (list): A list of character offsets.
+            special_tokens (list): A list indicating whether each token is a special token.
+            annotation (tuple): A tuple containing the start and end character offsets and the entity type.
+
+        Returns:
+            list: A list of token-level annotations.
+        """
         token_level_annotations = ["O"] * len(tokens)
 
         # Iterate through annotations and align with tokenized text
@@ -183,6 +285,15 @@ class NERDataset(Dataset):
     
 
 def collate_batch(batch):
+    """
+    Collates a batch of samples into a batch tensor.
+
+    Args:
+        batch (list): A list of samples.
+
+    Returns:
+        list: A list of batch tensors.
+    """
     max_length = max(len(x[0]) for x in batch)
     
     input_ids_list = []
